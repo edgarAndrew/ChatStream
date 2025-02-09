@@ -1,0 +1,59 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.3' apply false
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+allprojects {
+    group = 'com.chatstream.core'
+    version = '0.0.1-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'io.spring.dependency-management'
+
+    ext {
+        set('springCloudVersion', "2023.0.1")
+    }
+
+    dependencies {
+        implementation 'org.springframework.boot:spring-boot-starter-actuator'
+        implementation 'io.projectreactor:reactor-core'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'io.projectreactor:reactor-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    }
+
+
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        }
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+    }
+
+}
+tasks.register('startMessageBroker') {
+    description = 'Starts the messageBroker service'
+    dependsOn ':messageBroker:bootRun'
+}
+
+tasks.register('startMessageCRUDService') {
+    description = 'Starts the messageCRUDService service'
+    dependsOn ':messageCRUDService:bootRun'
+}
+
+tasks.register('startStorageService') {
+    description = 'Starts the storageService service'
+    dependsOn ':storageService:bootRun'
+}
