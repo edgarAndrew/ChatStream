@@ -1,5 +1,6 @@
 package com.chatstream.core.messageBroker.handler;
 
+import com.chatstream.core.messageBroker.service.MongoMessageService;
 import com.chatstream.core.messageBroker.service.RedisStreamService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.reactive.socket.WebSocketHandler;
@@ -16,13 +17,16 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class RedisStreamWebSocketHandler implements WebSocketHandler {
     private final RedisStreamService redisStreamService;
+    private final MongoMessageService mongoMessageService;
     private final Map<String, Sinks.Many<String>> streamSinks = new ConcurrentHashMap<>();
 
-    @Value("${stream_batch_size}")
-    private int streamBatchSize;
+    //@Value("${stream_batch_size:10}")
+    private int streamBatchSize=10;
 
-    public RedisStreamWebSocketHandler(RedisStreamService redisStreamService) {
+    public RedisStreamWebSocketHandler(RedisStreamService redisStreamService,MongoMessageService mongoMessageService) {
         this.redisStreamService = redisStreamService;
+        this.mongoMessageService = mongoMessageService;
+
     }
 
     @Override
@@ -106,27 +110,10 @@ public class RedisStreamWebSocketHandler implements WebSocketHandler {
         return redisStreamService.publishMessage(stream, message)
                 .flatMap(id -> redisStreamService.getStreamLength(stream)
                         .flatMap(length -> {
-                            System.out.println("Stream length before check: " + length);
+                            System.out.println("Stream length before check: " + length + ", stream_batch_size : " + streamBatchSize);
                             if (length > streamBatchSize) {
-                                return redisStreamService.fetchNMessages(stream, length)
-                                        .collectList()
-                                        .flatMap(messages -> {
-                                            // First save messages to database
-                                            return saveMessagesToDatabase(stream, messages)
-                                                    .then(redisStreamService.clearStream(stream))
-                                                    .flatMap(deleted -> {
-                                                        System.out.println("Cleared stream: " + stream + ", deleted messages: " + deleted);
-                                                        // Verify the clear operation worked
-                                                        return redisStreamService.getStreamLength(stream)
-                                                                .flatMap(newLength -> {
-                                                                    System.out.println("Stream length after clear: " + newLength);
-                                                                    if (newLength >= length) {
-                                                                        System.out.println("Failed to clear stream: length did not decrease");
-                                                                    }
-                                                                    return Mono.just(id);
-                                                                });
-                                                    });
-                                        })
+                                return redisStreamService.processBatch(stream)
+                                        .thenReturn(id)
                                         .onErrorResume(error -> {
                                             System.out.println("Error processing stream batch: " + error.getMessage());
                                             error.printStackTrace();
@@ -152,9 +139,7 @@ public class RedisStreamWebSocketHandler implements WebSocketHandler {
 
     // Placeholder method for database operations
     private Mono<Void> saveMessagesToDatabase(String stream, List<Map<String, String>> messages) {
-        System.out.println("Saving " + messages.size() + " messages from stream " + stream + " to database");
-        // TODO: Implement actual database save logic
-        return Mono.empty();
+        return mongoMessageService.saveStreamMessages(stream, messages);
     }
 
 
